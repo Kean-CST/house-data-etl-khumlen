@@ -136,7 +136,7 @@ def load(partitions: dict[str, DataFrame], jdbc_url: str, pg_props: dict) -> Non
             .jdbc(
                 url=jdbc_url,
                 table=PG_TABLES[hood],
-                properties={**pg_props, "createTableColumnTypes": PG_COLUMN_SCHEMA},
+                properties=pg_props,
             )
         )
 
