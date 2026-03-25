@@ -83,6 +83,11 @@ def transform(df: DataFrame) -> dict[str, DataFrame]:
     def _serialize(value: object) -> str:
         if value is None:
             return ""
+        if isinstance(value, float):
+            # Match expected CSV formatting (e.g. 0 instead of 0.0)
+            if value.is_integer():
+                return str(int(value))
+            return str(value)
         if hasattr(value, "isoformat"):
             return value.isoformat()
         return str(value)
