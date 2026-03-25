@@ -43,17 +43,97 @@ PG_COLUMN_SCHEMA = (
 
 def extract(spark: SparkSession, csv_path: str) -> DataFrame:
     """Load the CSV dataset into a PySpark DataFrame with correct data types."""
-    raise NotImplementedError
+    df = spark.read.option("header", True).csv(csv_path)
+
+    int_columns = [
+        "price",
+        "square_feet",
+        "num_bedrooms",
+        "num_bathrooms",
+        "house_age",
+        "garage_spaces",
+        "location_score",
+        "school_rating",
+        "crime_rate",
+        "days_on_market",
+        "buyer_budget",
+        "buyer_family_size",
+    ]
+    float_columns = ["lot_size_acres", "distance_downtown_miles"]
+    bool_columns = ["has_pool", "recently_renovated", "has_children", "first_time_buyer"]
+
+    for column in int_columns:
+        df = df.withColumn(column, F.col(column).cast("int"))
+
+    for column in float_columns:
+        df = df.withColumn(column, F.col(column).cast("double"))
+
+    for column in bool_columns:
+        df = df.withColumn(column, (F.upper(F.trim(F.col(column))) == F.lit("TRUE")))
+
+    df = df.withColumn("sale_date", F.to_date(F.col("sale_date"), "M/d/yy"))
+    return df
 
 
 def transform(df: DataFrame) -> dict[str, DataFrame]:
     """Split the data by neighborhood and save each as a separate CSV file."""
-    raise NotImplementedError
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    partitions: dict[str, DataFrame] = {}
+
+    def _serialize(value: object) -> str:
+        if value is None:
+            return ""
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return str(value)
+
+    for hood in NEIGHBORHOODS:
+        hood_df = df.filter(F.col("neighborhood") == hood).orderBy("house_id")
+        partitions[hood] = hood_df
+
+        with OUTPUT_FILES[hood].open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(hood_df.columns)
+            for row in hood_df.collect():
+                writer.writerow([_serialize(value) for value in row])
+
+    return partitions
 
 
 def load(partitions: dict[str, DataFrame], jdbc_url: str, pg_props: dict) -> None:
     """Insert each neighborhood dataset into its own PostgreSQL table."""
-    raise NotImplementedError
+    db_columns = [
+        "house_id",
+        "neighborhood",
+        "price",
+        "square_feet",
+        "num_bedrooms",
+        "num_bathrooms",
+        "house_age",
+        "garage_spaces",
+        "lot_size_acres",
+        "has_pool",
+        "recently_renovated",
+        "energy_rating",
+        "location_score",
+        "school_rating",
+        "crime_rate",
+        "distance_downtown_miles",
+        "sale_date",
+        "days_on_market",
+    ]
+
+    for hood, hood_df in partitions.items():
+        (
+            hood_df.select(*db_columns)
+            .write
+            .mode("overwrite")
+            .jdbc(
+                url=jdbc_url,
+                table=PG_TABLES[hood],
+                properties={**pg_props, "createTableColumnTypes": PG_COLUMN_SCHEMA},
+            )
+        )
 
 
 # ── Main (do not modify) ───────────────────────────────────────────────────────
